@@ -31,23 +31,20 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "envision-unwrapped";
-  version = "0-unstable-2024-09-06";
+  version = "0-unstable-2024-10-20";
 
   src = fetchFromGitLab {
     owner = "gabmus";
     repo = "envision";
-    rev = "849f47a8533bc3fc673afbdd9b32acac3ff26f7d";
-    hash = "sha256-t1+4MXD1s4NW38r3Ht+1OmCAY44MqEPijXdUVKy0rY4=";
+    rev = "c40a4ad05a8e6ea99eed4a7d7d2098a08686e065";
+    hash = "sha256-C/m5Hx52fFyuVI87EmHpe5YqjwDWoyveiXA0sJTt2NQ=";
   };
 
   strictDeps = true;
 
-  cargoDeps = rustPlatform.importCargoLock {
-    lockFile = ./Cargo.lock;
-    outputHashes = {
-      "libmonado-rs-0.1.0" = "sha256-xztevBUaYBm5G3A0ZTb+3GV3g1IAU3SzfSS5BBqfp1Y=";
-      "openxr-0.18.0" = "sha256-ktkbhmExstkNJDYM/HYOwAwv3acex7P9SP0KMAOKhQk=";
-    };
+  cargoDeps = rustPlatform.fetchCargoTarball {
+    inherit (finalAttrs) pname version src;
+    hash = "sha256-I9UDCKrqU6TWcmHsSFwt1elplPwU+XTgyXiN2wtw5y0=";
   };
 
   nativeBuildInputs = [

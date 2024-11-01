@@ -1,12 +1,15 @@
 { config, lib, pkgs, ... }:
-
-with lib;
-
 let
   cfg = config.services.samba;
 
-  settingsFormat = pkgs.formats.ini { };
-  configFile = settingsFormat.generate "smb.conf" cfg.settings;
+  settingsFormat = pkgs.formats.ini {
+    listToValue = lib.concatMapStringsSep " " (lib.generators.mkValueStringDefault { });
+  };
+  # Ensure the global section is always first
+  globalConfigFile = settingsFormat.generate "smb-global.conf" { global = cfg.settings.global; };
+  sharesConfigFile = settingsFormat.generate "smb-shares.conf" (lib.removeAttrs cfg.settings [ "global" ]);
+
+  configFile = pkgs.concatText "smb.conf" [ globalConfigFile sharesConfigFile ];
 
 in
 
@@ -17,8 +20,8 @@ in
   };
 
   imports = [
-    (mkRemovedOptionModule [ "services" "samba" "defaultShare" ] "")
-    (mkRemovedOptionModule [ "services" "samba" "syncPasswordsByPam" ] "This option has been removed by upstream, see https://bugzilla.samba.org/show_bug.cgi?id=10669#c10")
+    (lib.mkRemovedOptionModule [ "services" "samba" "defaultShare" ] "")
+    (lib.mkRemovedOptionModule [ "services" "samba" "syncPasswordsByPam" ] "This option has been removed by upstream, see https://bugzilla.samba.org/show_bug.cgi?id=10669#c10")
 
     (lib.mkRemovedOptionModule [ "services" "samba" "configText" ] ''
       Use services.samba.settings instead.
@@ -29,7 +32,7 @@ in
     '')
     (lib.mkRemovedOptionModule [ "services" "samba" "extraConfig" ] "Use services.samba.settings instead.")
     (lib.mkRenamedOptionModule [ "services" "samba" "invalidUsers" ] [ "services" "samba" "settings" "global" "invalid users" ])
-    (lib.mkRenamedOptionModule [ "services" "samba" "securityType" ] [ "services" "samba" "settings" "global" "security type" ])
+    (lib.mkRenamedOptionModule [ "services" "samba" "securityType" ] [ "services" "samba" "settings" "global" "security" ])
     (lib.mkRenamedOptionModule [ "services" "samba" "shares" ] [ "services" "samba" "settings" ])
 
     (lib.mkRenamedOptionModule [ "services" "samba" "enableWinbindd" ] [ "services" "samba" "winbindd" "enable" ])
@@ -106,13 +109,38 @@ in
       '';
 
       settings = lib.mkOption {
-        type = lib.types.submodule { freeformType = settingsFormat.type; };
-        default = {};
+        type = lib.types.submodule {
+          freeformType = settingsFormat.type;
+          options = {
+            global.security = lib.mkOption {
+              type = lib.types.enum [ "auto" "user" "domain" "ads" ];
+              default = "user";
+              description = "Samba security type.";
+            };
+            global."invalid users" = lib.mkOption {
+              type = lib.types.listOf lib.types.str;
+              default = [ "root" ];
+              description = "List of users who are denied to login via Samba.";
+            };
+            global."passwd program" = lib.mkOption {
+              type = lib.types.str;
+              default = "/run/wrappers/bin/passwd %u";
+              description = "Path to a program that can be used to set UNIX user passwords.";
+            };
+          };
+        };
+        default = {
+          "global" = {
+            "security" = "user";
+            "passwd program" = "/run/wrappers/bin/passwd %u";
+            "invalid users" = [ "root" ];
+          };
+        };
         example = {
           "global" = {
             "security" = "user";
             "passwd program" = "/run/wrappers/bin/passwd %u";
-            "invalid users" = "root";
+            "invalid users" = [ "root" ];
           };
           "public" = {
             "path" = "/srv/public";
@@ -135,7 +163,7 @@ in
 
   ###### implementation
 
-  config = mkMerge
+  config = lib.mkMerge
     [ { assertions =
           [ { assertion = cfg.nsswins -> cfg.winbindd.enable;
               message   = "If services.samba.nsswins is enabled, then services.samba.winbindd.enable must also be enabled";
@@ -146,12 +174,12 @@ in
       (lib.mkIf cfg.enable {
         environment.etc."samba/smb.conf".source = configFile;
 
-        system.nssModules = optional cfg.nsswins cfg.package;
-        system.nssDatabases.hosts = optional cfg.nsswins "wins";
+        system.nssModules = lib.optional cfg.nsswins cfg.package;
+        system.nssDatabases.hosts = lib.optional cfg.nsswins "wins";
 
         systemd = {
           slices.system-samba = {
-            description = "Samba slice";
+            description = "Samba (SMB Networking Protocol) Slice";
           };
           targets.samba = {
             description = "Samba Server";
@@ -179,8 +207,8 @@ in
           setuid = true;
         };
 
-        networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ 139 445 ];
-        networking.firewall.allowedUDPPorts = mkIf cfg.openFirewall [ 137 138 ];
+        networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ 139 445 ];
+        networking.firewall.allowedUDPPorts = lib.mkIf cfg.openFirewall [ 137 138 ];
       })
 
       (lib.mkIf (cfg.enable && cfg.nmbd.enable) {
